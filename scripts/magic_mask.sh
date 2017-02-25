@@ -42,8 +42,16 @@ mktouch() {
   fi
 }
 
+in_list() {
+  for i in $2; do
+    [ "$1" = "$i" ] && return 0
+  done
+  return 1
+}
+
 unblock() {
   touch /dev/.magisk.unblock
+  chcon u:object_r:device:s0 /dev/.magisk.unblock
   exit
 }
 
@@ -52,11 +60,19 @@ run_scripts() {
   for MOD in $BASE/* ; do
     if [ ! -f "$MOD/disable" ]; then
       if [ -f "$MOD/$1.sh" ]; then
-        chmod 755 $MOD/$1.sh
+        chmod 755 "$MOD/$1.sh"
         chcon "u:object_r:system_file:s0" "$MOD/$1.sh"
         log_print "$1: $MOD/$1.sh"
-        sh $MOD/$1.sh
+        sh "$MOD/$1.sh"
       fi
+    fi
+  done
+  for SCRIPT in $COREDIR/${1}.d/* ; do
+    if [ -f "$SCRIPT" ]; then
+      chmod 755 "$SCRIPT"
+      chcon "u:object_r:system_file:s0" "$SCRIPT"
+      log_print "${1}.d: $SCRIPT"
+      sh "$SCRIPT"
     fi
   done
 }
@@ -465,7 +481,8 @@ case $1 in
       # Stage 4
       log_print "* Bind mount mirror items"
       # Find all empty directores and dummy files, they should be mounted by original files in /system
-      TOOLPATH=/dev/busybox find $DUMMDIR -type d \
+      # TOOLPATH=/dev/busybox
+      find $DUMMDIR -type d \
       -exec sh -c '[ -z "`ls -A $1`" ] && echo $1' -- {} \; \
       -o \( -type f -size 0 -print \) | \
       while read ITEM ; do
@@ -492,7 +509,7 @@ case $1 in
         # Read in defined system props
         if [ -f $MOD/system.prop ]; then
           log_print "* Reading props from $MOD/system.prop"
-          /data/magisk/resetprop --file $MOD/system.prop
+          $BINPATH/resetprop --file $MOD/system.prop
         fi
       done
 
