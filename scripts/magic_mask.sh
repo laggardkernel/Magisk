@@ -88,7 +88,7 @@ loopsetup() {
 }
 
 target_size_check() {
-  e2fsck -p -f $1
+  e2fsck -p -f "$1"
   curBlocks=`e2fsck -n $1 2>/dev/null | cut -d, -f3 | cut -d\  -f2`;
   curUsedM=$((`echo "$curBlocks" | cut -d/ -f1` * 4 / 1024));
   curSizeM=$((`echo "$curBlocks" | cut -d/ -f2` * 4 / 1024));
@@ -96,6 +96,18 @@ target_size_check() {
 }
 
 travel() {
+  # Ignore /system/bin, we will handle it differently
+  if [ "$2" = "system/bin" ]; then
+    # If we are in a higher level, delete the lower levels
+    rm -rf "$MOUNTINFO/dummy/$2"
+    # Mount the dummy parent
+    mktouch "$MOUNTINFO/dummy/$2"
+
+    [ ! -d "$TMPDIR/bin_tmp" ] && mkdir -p $TMPDIR/bin_tmp
+    ln -s $1/$2/* $TMPDIR/bin_tmp
+    return
+  fi
+
   cd "$1/$2"
   if [ -f ".replace" ]; then
     rm -rf "$MOUNTINFO/$2"
@@ -408,7 +420,12 @@ case $1 in
       # linker(64), t*box required
       if [ -f "$MOUNTINFO/dummy/system/bin" ]; then
         cd /system/bin
-        cp -afc linker* t*box $DUMMDIR/system/bin/
+        # cp -afc linker* t*box $DUMMDIR/system/bin/
+        mkdir -p $TMPDIR/bin $TMPDIR/bin_bind
+        cp -afc ./* $TMPDIR/bin/
+        ln -s $TMPDIR/bin/* $TMPDIR/bin_bind
+        cp -afc $TMPDIR/bin_tmp/. $TMPDIR/bin_bind
+        rm -rf $TMPDIR/bin_tmp
       fi
 
       # Some libraries are required
@@ -445,7 +462,9 @@ case $1 in
 
       # Stage 1
       log_print "* Bind mount dummy system"
-      find $MOUNTINFO/dummy -type f 2>/dev/null | while read ITEM ; do
+      find $MOUNTINFO/dummy -type f 2>/dev/null | \
+      grep -v $WHITELIST | \
+      while read ITEM ; do
         TARGET=${ITEM#$MOUNTINFO/dummy}
         ORIG="$DUMMDIR$TARGET"
         clone_dummy "$TARGET"
@@ -453,6 +472,12 @@ case $1 in
       done
 
       # Stage 2
+      
+      # Bind binary to /system/bin differently
+      if [ -f "$MOUNTINFO/dummy/system/bin" ]; then
+        bind_mount $TMPDIR/bin_bind /system/bin
+      fi
+
       log_print "* Bind mount module items"
       find $MOUNTINFO/system -type f 2>/dev/null | while read ITEM ; do
         TARGET=${ITEM#$MOUNTINFO}
@@ -536,7 +561,7 @@ case $1 in
       exit
     fi
     run_scripts service
-
+    
     # Start MagiskHide
     [ "`getprop persist.magisk.hide`" = "1" ] && sh $COREDIR/magiskhide/enable
     ;;
