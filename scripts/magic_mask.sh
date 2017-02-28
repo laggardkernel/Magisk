@@ -421,10 +421,12 @@ case $1 in
       if [ -f "$MOUNTINFO/dummy/system/bin" ]; then
         cd /system/bin
         # cp -afc linker* t*box $DUMMDIR/system/bin/
-        mkdir -p $TMPDIR/bin $TMPDIR/bin_bind
+        rm -rf $DUMMDIR/system/bin
+        mkdir -p $DUMMDIR/system/bin
+        mkdir -p $TMPDIR/bin
         cp -afc ./* $TMPDIR/bin/
-        ln -s $TMPDIR/bin/* $TMPDIR/bin_bind
-        cp -afc $TMPDIR/bin_tmp/. $TMPDIR/bin_bind
+        ln -s $TMPDIR/bin/* $DUMMDIR/system/bin
+        cp -afc $TMPDIR/bin_tmp/. $DUMMDIR/system/bin
         rm -rf $TMPDIR/bin_tmp
       fi
 
@@ -474,8 +476,8 @@ case $1 in
       # Stage 2
       
       # Bind binary to /system/bin differently
-      if [ -f "$MOUNTINFO/dummy/system/bin" ]; then
-        bind_mount $TMPDIR/bin_bind /system/bin
+      if [ -d "$DUMMDIR/system/bin" ]; then
+        bind_mount $DUMMDIR/system/bin /system/bin
       fi
 
       log_print "* Bind mount module items"
