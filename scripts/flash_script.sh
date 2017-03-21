@@ -341,9 +341,12 @@ fi
 # Copy required files
 rm -rf $CPPATH 2>/dev/null
 mkdir -p $CPPATH
-cp -af $BINDIR/busybox $BINDIR/sepolicy-inject $BINDIR/resetprop $BINDIR/bootimgtools \
+cp -af $BINDIR/. \
        $INSTALLER/common/custom_ramdisk_patch.sh $INSTALLER/common/init.magisk.rc \
-       $INSTALLER/common/magic_mask.sh $CPPATH
+       $INSTALLER/common/magic_mask.sh $INSTALLER/common/magisk.apk $CPPATH
+# Legacy support
+ln -sf /data/magisk/magiskpolicy $CPPATH/sepolicy-inject
+
 chmod -R 755 $CPPATH
 chcon -h u:object_r:system_file:s0 $CPPATH $CPPATH/*
 
@@ -359,7 +362,8 @@ PATH=$TMPDIR/busybox:$PATH
 ##########################################################################################
 
 # Fix SuperSU.....
-($BOOTMODE) && $BINDIR/sepolicy-inject --live "allow fsck * * *"
+# ($BOOTMODE) && $BINDIR/sepolicy-inject --live "allow fsck * * *"
+($BOOTMODE) && $BINDIR/magiskpolicy --live "allow fsck * * *"
 
 if (is_mounted /data); then
   IMG=/data/magisk.img
@@ -534,7 +538,8 @@ else
   fi
 
   # minimal sepolicy patches
-  LD_LIBRARY_PATH=$SYSTEMLIB $BINDIR/sepolicy-inject --load sepolicy --save sepolicy --minimal
+  # LD_LIBRARY_PATH=$SYSTEMLIB $BINDIR/sepolicy-inject --load sepolicy --save sepolicy --minimal
+  LD_LIBRARY_PATH=$SYSTEMLIB $BINDIR/magiskpolicy --load sepolicy --save sepolicy --minimal
 
   # Add new items
   mkdir -p magisk 2>/dev/null

@@ -21,7 +21,13 @@ ln -s /sbin_orig/* $MODDIR/sbin_bind
 chcon -h u:object_r:rootfs:s0 $MODDIR/sbin_bind/*
 chmod 755 $MODDIR/sbin_bind
 ln -s $MODDIR/su $MODDIR/sbin_bind/su
-ln -s /data/magisk/sepolicy-inject $MODDIR/sbin_bind/sepolicy-inject
+if [ -f "/data/magisk/magiskpolicy" ]; then
+  ln -s /data/magisk/magiskpolicy $MODDIR/sbin_bind/magiskpolicy
+else
+  # legacy sepolicy-inject
+  ln -s /data/magisk/sepolicy-inject $MODDIR/sbin_bind/sepolicy-inject
+fi
+ln -s /data/magisk/resetprop $MODDIR/sbin_bind/resetprop
 mount -o bind $MODDIR/sbin_bind /sbin
 
 log_print "Starting su daemon"

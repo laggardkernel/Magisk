@@ -53,10 +53,10 @@ EXIT /B %ERRORLEVEL%
   ECHO ************************
   ECHO * Copying binaries
   ECHO ************************
-  COPY /Y libs\armeabi-v7a\* zip_static\arm
-  COPY /Y libs\arm64-v8a\* zip_static\arm64
-  COPY /Y libs\x86\* zip_static\x86
-  COPY /Y libs\x86_64\* zip_static\x64
+  CALL :mkcp libs\armeabi-v7a\* zip_static\arm 
+  CALL :mkcp libs\arm64-v8a\* zip_static\arm64 
+  CALL :mkcp libs\x86\* zip_static\x86 
+  CALL :mkcp libs\x86_64\* zip_static\x64
   CALL :mkcp libs\armeabi-v7a\bootimgtools uninstaller\arm
   CALL :mkcp libs\arm64-v8a\bootimgtools uninstaller\arm64
   CALL :mkcp libs\x86\bootimgtools uninstaller\x86
@@ -75,10 +75,8 @@ EXIT /B %ERRORLEVEL%
   2>NUL RMDIR /S /Q zip_static\x64
   2>NUL RMDIR /S /Q zip_static\chromeos
   2>NUL DEL zip_static\META-INF\com\google\android\update-binary
-  2>NUL DEL zip_static\common\custom_ramdisk_patch.sh
-  2>NUL DEL zip_static\common\magisksu.sh
-  2>NUL DEL zip_static\common\init.magisk.rc
-  2>NUL DEL zip_static\common\magic_mask.sh
+  2>NUL DEL zip_static\common\*.sh
+  2>NUL DEL zip_static\common\*.rc
   2>NUL RMDIR /S /Q uninstaller\common
   2>NUL RMDIR /S /Q uninstaller\arm
   2>NUL RMDIR /S /Q uninstaller\arm64

@@ -42,10 +42,11 @@ int hideMagisk() {
 			}
 		}
 		
-		// First unmount the dummy skeletons and the cache mounts
+		// First unmount the dummy skeletons, cache mounts, and /sbin links
 		for(i = mount_size - 1; i >= 0; --i) {
 			if (strstr(mount_list[i], "tmpfs /system") || strstr(mount_list[i], "tmpfs /vendor")
-				|| (strstr(mount_list[i], cache_block) && strstr(mount_list[i], "/system")) ) {
+				|| strstr(mount_list[i], "tmpfs /sbin")
+				|| (strstr(mount_list[i], cache_block) && strstr(mount_list[i], "/system/")) ) {
 				sscanf(mount_list[i], "%*s %512s", buffer);
 				lazy_unmount(buffer);
 			}

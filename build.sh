@@ -26,10 +26,8 @@ cleanup() {
   rm -rfv zip_static/x64
   rm -rfv zip_static/chromeos
   rm -rfv zip_static/META-INF/com/google/android/update-binary
-  rm -rfv zip_static/common/custom_ramdisk_patch.sh
-  rm -rfv zip_static/common/magisksu.sh
-  rm -rfv zip_static/common/init.magisk.rc
-  rm -rfv zip_static/common/magic_mask.sh
+  rm -rfv zip_static/common/*.sh
+  rm -rfv zip_static/common/*.rc
   rm -rfv uninstaller/common
   rm -rfv uninstaller/arm
   rm -rfv uninstaller/arm64

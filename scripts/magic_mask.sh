@@ -34,7 +34,7 @@ log_print() {
 }
 
 mktouch() {
-  mkdir -p ${1%/*} 2>/dev/null
+  mkdir -p "${1%/*}" 2>/dev/null
   if [ -z "$2" ]; then
     touch "$1" 2>/dev/null
   else
@@ -53,6 +53,37 @@ unblock() {
   touch /dev/.magisk.unblock
   chcon u:object_r:device:s0 /dev/.magisk.unblock
   exit
+}
+
+bind_mount() {
+  if [ -e "$1" -a -e "$2" ]; then
+    mount -o bind "$1" "$2"
+    if [ "$?" -eq "0" ]; then
+      log_print "Mount: $1"
+    else
+      log_print "Mount Fail: $1 -> $2"
+    fi
+  fi
+}
+
+loopsetup() {
+  LOOPDEVICE=
+  for DEV in $(ls /dev/block/loop*); do
+    if [ `losetup $DEV $1 >/dev/null 2>&1; echo $?` -eq 0 ]; then
+      LOOPDEVICE=$DEV
+      break
+    fi
+  done
+}
+
+image_size_check() {
+  e2fsck -yf $1
+  curBlocks=`e2fsck -n $1 2>/dev/null | grep $1 | cut -d, -f3 | cut -d\  -f2`; 
+  curUsedM=`echo "$curBlocks" | cut -d/ -f1`
+  curSizeM=`echo "$curBlocks" | cut -d/ -f1`
+  curFreeM=$(((curSizeM - curUsedM) * 4 / 1024))
+  curUsedM=$((curUsedM * 4 / 1024 + 1))
+  curSizeM=$((curSizeM * 4 / 1024))
 }
 
 run_scripts() {
@@ -77,24 +108,6 @@ run_scripts() {
   done
 }
 
-loopsetup() {
-  LOOPDEVICE=
-  for DEV in $(ls /dev/block/loop*); do
-    if [ `losetup $DEV $1 >/dev/null 2>&1; echo $?` -eq 0 ]; then
-      LOOPDEVICE=$DEV
-      break
-    fi
-  done
-}
-
-target_size_check() {
-  e2fsck -p -f "$1"
-  curBlocks=`e2fsck -n $1 2>/dev/null | cut -d, -f3 | cut -d\  -f2`;
-  curUsedM=$((`echo "$curBlocks" | cut -d/ -f1` * 4 / 1024));
-  curSizeM=$((`echo "$curBlocks" | cut -d/ -f2` * 4 / 1024));
-  curFreeM=$((curSizeM - curUsedM));
-}
-
 travel() {
   # Ignore /system/bin, we will handle it differently
   if [ "$2" = "system/bin" ]; then
@@ -104,12 +117,13 @@ travel() {
     mktouch "$MOUNTINFO/dummy/$2"
 
     [ ! -d "$TMPDIR/bin_tmp" ] && mkdir -p $TMPDIR/bin_tmp
-    ln -s $1/$2/* $TMPDIR/bin_tmp
+    ln -sf $1/$2/* $TMPDIR/bin_tmp
     return
   fi
 
   cd "$1/$2"
   if [ -f ".replace" ]; then
+    log_print "Replace: /$2"
     rm -rf "$MOUNTINFO/$2"
     mktouch "$MOUNTINFO/$2" "$1"
   else
@@ -123,18 +137,22 @@ travel() {
           # If we are in a higher level, delete the lower levels
           rm -rf "$MOUNTINFO/dummy/$2"
           # Mount the dummy parent
+          log_print "Replace with dummy: /$2s"
           mktouch "$MOUNTINFO/dummy/$2"
 
           if [ -d "$ITEM" ]; then
             # Create new dummy directory and mount it
+            log_print "New directory: /$2/$ITEM"
             mkdir -p "$DUMMDIR/$2/$ITEM"
             mktouch "$MOUNTINFO/$2/$ITEM" "$1"
           elif [ -L "$ITEM" ]; then
             # Symlinks are small, copy them
+            log_print "Symlink: /$2/$ITEM"
             mkdir -p "$DUMMDIR/$2" 2>/dev/null
             cp -afc "$ITEM" "$DUMMDIR/$2/$ITEM"
           else
             # Create new dummy file and mount it
+            log_print "New file: /$2/$ITEM"
             mktouch "$DUMMDIR/$2/$ITEM"
             mktouch "$MOUNTINFO/$2/$ITEM" "$1"
           fi
@@ -145,6 +163,7 @@ travel() {
           (travel "$1" "$2/$ITEM")
         elif [ ! -L "$ITEM" ]; then
           # Mount this file
+          log_print "Replace: /$2/$ITEM"
           mktouch "$MOUNTINFO/$2/$ITEM" "$1"
         fi
       fi
@@ -178,29 +197,18 @@ clone_dummy() {
   done
 }
 
-bind_mount() {
-  if [ -e "$1" -a -e "$2" ]; then
-    mount -o bind $1 $2
-    if [ "$?" -eq "0" ]; then
-      log_print "Mount: $1"
-    else
-      log_print "Mount Fail: $1"
-    fi
-  fi
-}
-
 merge_image() {
-  if [ -f "$1" ]; then
+  if [ -f $1 ]; then
     log_print "$1 found"
-    if [ -f "$IMG" ]; then
+    if [ -f $IMG ]; then
       log_print "$IMG found, attempt to merge"
 
       # Handle large images
-      target_size_check $1
-      MERGEUSED=$curUsedM
-      target_size_check $IMG
-      if [ "$MERGEUSED" -gt "$curFreeM" ]; then
-        NEWDATASIZE=$((((MERGEUSED + curUsedM) / 32 + 2) * 32))
+      image_size_check $1
+      mergeUsedM=$curUsedM
+      image_size_check $IMG
+      if [ "$mergeUsedM" -gt "$curFreeM" ]; then
+        NEWDATASIZE=$(((mergeUsedM + curUsedM) / 32 * 32 + 32))
         log_print "Expanding $IMG to ${NEWDATASIZE}M..."
         resize2fs $IMG ${NEWDATASIZE}M
       fi
@@ -218,36 +226,29 @@ merge_image() {
       LOOPMERGE=$LOOPDEVICE
       log_print "$LOOPMERGE $1"
 
-      if [ ! -z "$LOOPDATA" ]; then
-        if [ ! -z "$LOOPMERGE" ]; then
-          # if loop devices have been setup, mount images
-          OK=true
+      if [ ! -z $LOOPDATA -a ! -z $LOOPMERGE ]; then
+        # if loop devices have been setup, mount images
+        OK=false
+        mount -t ext4 -o rw,noatime $LOOPDATA /cache/data_img && \
+        mount -t ext4 -o rw,noatime $LOOPMERGE /cache/merge_img && \
+        OK=true
 
-          if [ `mount -t ext4 -o rw,noatime $LOOPDATA /cache/data_img >/dev/null 2>&1; echo $?` -ne 0 ]; then
-            OK=false
-          fi
-
-          if [ `mount -t ext4 -o rw,noatime $LOOPMERGE /cache/merge_img >/dev/null 2>&1; echo $?` -ne 0 ]; then
-            OK=false
-          fi
-
-          if ($OK); then
-            # Merge (will reserve selinux contexts)
-            cd /cache/merge_img
-            for MOD in *; do
-              if [ "$MOD" != "lost+found" ]; then
-                log_print "Merging: $MOD"
-                rm -rf /cache/data_img/$MOD
-              fi
-            done
-            cp -afc . /cache/data_img
-            log_print "Merge complete"
-            cd /
-          fi
-
-          umount /cache/data_img
-          umount /cache/merge_img
+        if $OK; then
+          # Merge (will reserve selinux contexts)
+          cd /cache/merge_img
+          for MOD in *; do
+            if [ "$MOD" != "lost+found" ]; then
+              log_print "Merging: $MOD"
+              rm -rf /cache/data_img/$MOD
+            fi
+          done
+          cp -afc . /cache/data_img
+          log_print "Merge complete"
+          cd /
         fi
+
+        umount /cache/data_img
+        umount /cache/merge_img
       fi
 
       losetup -d $LOOPDATA
@@ -255,7 +256,7 @@ merge_image() {
 
       rmdir /cache/data_img
       rmdir /cache/merge_img
-    else
+    else 
       log_print "Moving $1 to $IMG "
       mv $1 $IMG
     fi
@@ -308,7 +309,8 @@ case $1 in
 
       log_print "** Magisk post-fs-data mode running..."
 
-      mv /cache/stock_boot.img /data 2>/dev/null
+      # Cache support
+      mv /cache/stock_boot* /data 2>/dev/null
       mv /cache/magisk.apk /data/magisk.apk 2>/dev/null
       mv /cache/custom_ramdisk_patch.sh /data/custom_ramdisk_patch.sh 2>/dev/null
 
@@ -321,8 +323,12 @@ case $1 in
       chown -R 0.0 $BINPATH
 
       # Live patch sepolicy
+      # v9
       # $BINPATH/sepolicy-inject --live -s su
-      $BINPATH/sepolicy-inject --live
+      # v11.1
+      # $BINPATH/sepolicy-inject --live
+      # v11.5
+      $BINPATH/magiskpolicy --live
 
       if [ -f $UNINSTALLER ]; then
         touch /dev/.magisk.unblock
@@ -334,13 +340,32 @@ case $1 in
       # Set up environment
       mkdir -p $TOOLPATH
       $BINPATH/busybox --install -s $TOOLPATH
-      ln -s $BINPATH/busybox $TOOLPATH/busybox
+      ln -sf $BINPATH/busybox $TOOLPATH/busybox
       # Prevent issues
       rm -f $TOOLPATH/su $TOOLPATH/sh $TOOLPATH/reboot
       chmod -R 755 $TOOLPATH
       chown -R 0.0 $TOOLPATH
       find $BINPATH $TOOLPATH -exec chcon -h u:object_r:system_file:s0 {} \;
 
+      # v11.5 Start MagiskSU
+      log_print "* Linking binaries to /sbin"
+      mount -o rw,remount rootfs /
+      chmod 755 /sbin
+      ln -sf $BINPATH/magiskpolicy /sbin/magiskpolicy
+      ln -sf $BINPATH/magiskpolicy /sbin/sepolicy-inject
+      ln -sf $BINPATH/resetprop /sbin/resetprop
+      if [ ! -f /sbin/launch_daemonsu.sh ]; then
+        log_print "* Starting MagiskSU"
+        export PATH=$OLDPATH
+        ln -sf $BINPATH/su /sbin/su
+        ln -sf $BINPATH/magiskpolicy /sbin/supolicy
+        /sbin/su --daemon
+        export PATH=$TOOLPATH:$OLDPATH
+      fi
+      mount -o ro,remount rootfs /
+
+      [ -f $DISABLEFILE ] && unblock
+      
       # Multirom functions should go here, not available right now
       MULTIROM=false
 
@@ -350,57 +375,51 @@ case $1 in
       merge_image /data/magisk_merge.img
 
       # Mount magisk.img
-      [ ! -d "$MOUNTPOINT" ] && mkdir -p $MOUNTPOINT
-      if [ `cat /proc/mounts | grep $MOUNTPOINT >/dev/null 2>&1; echo $?` -ne 0 ]; then
+      [ ! -d $MOUNTPOINT ] && mkdir -p $MOUNTPOINT
+      if ! mount | grep $MOUNTPOINT; then
         loopsetup $IMG
-        if [ ! -z "$LOOPDEVICE" ]; then
-          mount -t ext4 -o rw,noatime,suid $LOOPDEVICE $MOUNTPOINT
+        [ ! -z $LOOPDEVICE ] && mount -t ext4 -o rw,noatime $LOOPDEVICE $MOUNTPOINT
+        if [ $? -ne 0 ]; then
+          log_print "magisk.img mount failed, nothing to do :("
+          unblock
         fi
-      fi
-
-      if [ `cat /proc/mounts | grep $MOUNTPOINT >/dev/null 2>&1; echo $?` -ne 0 ]; then
-        log_print "magisk.img mount failed, nothing to do :("
-        unblock
       fi
 
       # Remove empty directories, legacy paths, symlinks, old temporary images
       find $MOUNTPOINT -type d -depth ! -path "*core*" -exec rmdir {} \; 2>/dev/null
       rm -rf $MOUNTPOINT/zzsupersu $MOUNTPOINT/phh $COREDIR/bin $COREDIR/dummy $COREDIR/mirror \
-             $COREDIR/busybox /data/magisk/*.img /data/busybox 2>/dev/null
+             $COREDIR/busybox $COREDIR/su /data/magisk/*.img /data/busybox 2>/dev/null
 
-      # Remove modules
+      # Remove modules that are labeled to be removed
       for MOD in $MOUNTPOINT/* ; do
-        if [ -f "$MOD/remove" ] || [ "$MOD" = "zzsupersu" ]; then
+        rm -f $MOD/system/placeholder 2>/dev/null
+        if [ -f $MOD/remove ]; then
           log_print "Remove module: $MOD"
           rm -rf $MOD
         fi
       done
 
       # Unmount, shrink, remount
-      if [ `umount $MOUNTPOINT >/dev/null 2>&1; echo $?` -eq 0 ]; then
-        losetup -d $LOOPDEVICE
-        target_size_check $IMG
-        NEWDATASIZE=$(((curUsedM / 32 + 2) * 32))
+      if umount $MOUNTPOINT; then
+        losetup -d $LOOPDEVICE 2>/dev/null
+        image_size_check $IMG
+        NEWDATASIZE=$((curUsedM / 32 * 32 + 32))
         if [ "$curSizeM" -gt "$NEWDATASIZE" ]; then
           log_print "Shrinking $IMG to ${NEWDATASIZE}M..."
           resize2fs $IMG ${NEWDATASIZE}M
         fi
         loopsetup $IMG
-        if [ ! -z "$LOOPDEVICE" ]; then
-          mount -t ext4 -o rw,noatime,suid $LOOPDEVICE $MOUNTPOINT
-        fi
-        if [ `cat /proc/mounts | grep $MOUNTPOINT >/dev/null 2>&1; echo $?` -ne 0 ]; then
+        [ ! -z $LOOPDEVICE ] && mount -t ext4 -o rw,noatime $LOOPDEVICE $MOUNTPOINT
+        if [ $? -ne 0 ]; then
           log_print "magisk.img mount failed, nothing to do :("
           unblock
         fi
       fi
 
-      # Start MagiskSU if no SuperSU
-      export PATH=$OLDPATH
-      [ ! -f /sbin/launch_daemonsu.sh ] && sh $COREDIR/su/magisksu.sh
-      export PATH=$TOOLPATH:$OLDPATH
-
-      [ -f $DISABLEFILE ] && unblock
+      # v11.1 Start MagiskSU if no SuperSU
+      # export PATH=$OLDPATH
+      # [ ! -f /sbin/launch_daemonsu.sh ] && sh $COREDIR/su/magisksu.sh
+      # export PATH=$TOOLPATH:$OLDPATH
 
       log_print "* Preparing modules"
 
@@ -409,8 +428,17 @@ case $1 in
 
       # Travel through all mods, all magic happens here
       for MOD in $MOUNTPOINT/* ; do
-        if [ -f "$MOD/auto_mount" -a -d "$MOD/system" -a ! -f "$MOD/disable" ]; then
+        if [ ! -f $MOD/disable ]; then
+          # Travel through all mods
+          if [ -f $MOD/auto_mount -a -d $MOD/system ]; then
+          log_print "Analyzing module: $MOD"
           (travel $MOD system)
+          fi
+          # Read in defined system props
+          if [ -f $MOD/system.prop ]; then
+            log_print "* Reading props from $MOD/system.prop"
+            $BINPATH/resetprop --file $MOD/system.prop
+          fi
         fi
       done
 
@@ -425,7 +453,7 @@ case $1 in
         mkdir -p $DUMMDIR/system/bin
         mkdir -p $TMPDIR/bin
         cp -afc ./* $TMPDIR/bin/
-        ln -s $TMPDIR/bin/* $DUMMDIR/system/bin
+        ln -sf $TMPDIR/bin/* $DUMMDIR/system/bin
         cp -afc $TMPDIR/bin_tmp/. $DUMMDIR/system/bin
         rm -rf $TMPDIR/bin_tmp
       fi
@@ -463,7 +491,7 @@ case $1 in
       # Start doing tasks
 
       # Stage 1
-      log_print "* Bind mount dummy system"
+      log_print "* Stage 1: Bind mount dummy system"
       find $MOUNTINFO/dummy -type f 2>/dev/null | \
       grep -v $WHITELIST | \
       while read ITEM ; do
@@ -480,7 +508,7 @@ case $1 in
         bind_mount $DUMMDIR/system/bin /system/bin
       fi
 
-      log_print "* Bind mount module items"
+      log_print "* Stage 2: Bind mount module items"
       find $MOUNTINFO/system -type f 2>/dev/null | while read ITEM ; do
         TARGET=${ITEM#$MOUNTINFO}
         ORIG=`cat $ITEM`$TARGET
@@ -488,25 +516,16 @@ case $1 in
         rm -f $DUMMDIR${TARGET%/*}/.dummy 2>/dev/null
       done
 
-      # Run scripts
-      log_print "* Execute scripts"
+      # Stage 3, Run scripts
+      log_print "* Stage 3: Execute scripts"
       run_scripts post-fs-data
 
-      # Bind hosts for Adblock apps
-      if [ -f "$COREDIR/hosts" ]; then
-        log_print "* Enabling systemless hosts file support"
-        bind_mount $COREDIR/hosts /system/etc/hosts
-      fi
-
-      # Expose busybox
-      [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
-
-      # Stage 3
-      log_print "* Bind mount system mirror"
+      # Stage 4
+      log_print "* Stage 4: Bind mount system mirror"
       bind_mount /system $MIRRDIR/system
 
-      # Stage 4
-      log_print "* Bind mount mirror items"
+      # Stage 5
+      log_print "* Stage 5: Bind mount mirror items"
       # Find all empty directores and dummy files, they should be mounted by original files in /system
       # TOOLPATH=/dev/busybox
       find $DUMMDIR -type d \
@@ -518,10 +537,16 @@ case $1 in
         bind_mount $ORIG $TARGET
       done
 
-      if [ -f /data/magisk.apk ]; then
-        if [ -z `ls /data/app | grep com.topjohnwu.magisk` ]; then
+      # Bind hosts for Adblock apps
+      if [ -f "$COREDIR/hosts" ]; then
+        log_print "* Enabling systemless hosts file support"
+        bind_mount $COREDIR/hosts /system/etc/hosts
+      fi
+
+      if [ -f $BINPATH/magisk.apk ]; then
+        if ! ls /data/app | grep com.topjohnwu.magisk; then
           mkdir /data/app/com.topjohnwu.magisk-1
-          cp /data/magisk.apk /data/app/com.topjohnwu.magisk-1/base.apk
+          cp $BINPATH/magisk.apk /data/app/com.topjohnwu.magisk-1/base.apk
           chown 1000.1000 /data/app/com.topjohnwu.magisk-1
           chown 1000.1000 /data/app/com.topjohnwu.magisk-1/base.apk
           chmod 755 /data/app/com.topjohnwu.magisk-1
@@ -529,16 +554,11 @@ case $1 in
           chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1
           chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1/base.apk
         fi
-        rm -f /data/magisk.apk 2>/dev/null
+        rm -f $BINPATH/magisk.apk 2>/dev/null
       fi
 
-      for MOD in $MOUNTPOINT/* ; do
-        # Read in defined system props
-        if [ -f $MOD/system.prop ]; then
-          log_print "* Reading props from $MOD/system.prop"
-          $BINPATH/resetprop --file $MOD/system.prop
-        fi
-      done
+      # Expose busybox
+      [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
 
       # Restart post-fs-data if necessary (multirom)
       ($MULTIROM) && setprop magisk.restart_pfsd 1
