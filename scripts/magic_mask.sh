@@ -109,17 +109,8 @@ run_scripts() {
 }
 
 travel() {
-  # Ignore /system/bin, we will handle it differently
-  if [ "$2" = "system/bin" ]; then
-    # If we are in a higher level, delete the lower levels
-    rm -rf "$MOUNTINFO/dummy/$2"
-    # Mount the dummy parent
-    mktouch "$MOUNTINFO/dummy/$2"
-
-    [ ! -d "$TMPDIR/bin_tmp" ] && mkdir -p $TMPDIR/bin_tmp
-    ln -sf $1/$2/* $TMPDIR/bin_tmp
-    return
-  fi
+  LINK=false
+  in_list "/$2" "$WHITELIST" && LINK=true
 
   cd "$1/$2"
   if [ -f ".replace" ]; then
@@ -128,7 +119,11 @@ travel() {
     mktouch "$MOUNTINFO/$2" "$1"
   else
     for ITEM in * ; do
-      if [ ! -e "/$2/$ITEM" ]; then
+      # This means it's an empty folder (shouldn't happen, but better to be safe)
+      [ "$ITEM" = "*" ] && return
+      
+      # Target not found or target/file is a symlink
+      if [ ! -e "/$2/$ITEM" -o -L "/$2/$ITEM" -o -L "$ITEM" ]; then
         # New item found
         if [ "$2" = "system" ]; then
           # We cannot add new items to /system root, delete it
@@ -137,7 +132,7 @@ travel() {
           # If we are in a higher level, delete the lower levels
           rm -rf "$MOUNTINFO/dummy/$2"
           # Mount the dummy parent
-          log_print "Replace with dummy: /$2s"
+          log_print "Replace with dummy: /$2"
           mktouch "$MOUNTINFO/dummy/$2"
 
           if [ -d "$ITEM" ]; then
@@ -151,10 +146,16 @@ travel() {
             mkdir -p "$DUMMDIR/$2" 2>/dev/null
             cp -afc "$ITEM" "$DUMMDIR/$2/$ITEM"
           else
-            # Create new dummy file and mount it
-            log_print "New file: /$2/$ITEM"
-            mktouch "$DUMMDIR/$2/$ITEM"
-            mktouch "$MOUNTINFO/$2/$ITEM" "$1"
+            if $LINK; then
+              log_print "Symlink: /$2/$ITEM"
+              mkdir -p "$DUMMDIR/$2" 2>/dev/null
+              ln -sf "$1/$2/$ITEM" "$DUMMDIR/$2/$ITEM"
+            else
+              # Create new dummy file and mount it
+              log_print "New file: /$2/$ITEM"
+              mktouch "$DUMMDIR/$2/$ITEM"
+              mktouch "$MOUNTINFO/$2/$ITEM" "$1"
+            fi
           fi
         fi
       else
@@ -428,16 +429,16 @@ case $1 in
 
       # Travel through all mods, all magic happens here
       for MOD in $MOUNTPOINT/* ; do
-        if [ ! -f $MOD/disable ]; then
+        if [ ! -f "$MOD/disable" ]; then
           # Travel through all mods
-          if [ -f $MOD/auto_mount -a -d $MOD/system ]; then
+          if [ -f "$MOD/auto_mount" -a -d "$MOD/system" ]; then
           log_print "Analyzing module: $MOD"
-          (travel $MOD system)
+          (travel "$MOD" system)
           fi
           # Read in defined system props
-          if [ -f $MOD/system.prop ]; then
+          if [ -f "$MOD/system.prop" ]; then
             log_print "* Reading props from $MOD/system.prop"
-            $BINPATH/resetprop --file $MOD/system.prop
+            $BINPATH/resetprop --file "$MOD/system.prop"
           fi
         fi
       done
@@ -449,13 +450,11 @@ case $1 in
       if [ -f "$MOUNTINFO/dummy/system/bin" ]; then
         cd /system/bin
         # cp -afc linker* t*box $DUMMDIR/system/bin/
-        rm -rf $DUMMDIR/system/bin
-        mkdir -p $DUMMDIR/system/bin
-        mkdir -p $TMPDIR/bin
-        cp -afc ./* $TMPDIR/bin/
-        ln -sf $TMPDIR/bin/* $DUMMDIR/system/bin
-        cp -afc $TMPDIR/bin_tmp/. $DUMMDIR/system/bin
-        rm -rf $TMPDIR/bin_tmp
+        for ITEM in * ; do
+          if [ ! -e "$DUMMDIR/system/bin/$ITEM" ]; then
+            cp -afc "$ITEM" $DUMMDIR/system/bin
+          fi
+        done
       fi
 
       # Some libraries are required
@@ -491,7 +490,7 @@ case $1 in
       # Start doing tasks
 
       # Stage 1
-      log_print "* Stage 1: Bind mount dummy system"
+      log_print "* Stage 1: Bind mount dummy skeletons"
       find $MOUNTINFO/dummy -type f 2>/dev/null | \
       grep -v $WHITELIST | \
       while read ITEM ; do
@@ -500,19 +499,18 @@ case $1 in
         clone_dummy "$TARGET"
         bind_mount "$ORIG" "$TARGET"
       done
-
-      # Stage 2
       
       # Bind binary to /system/bin differently
       if [ -d "$DUMMDIR/system/bin" ]; then
-        bind_mount $DUMMDIR/system/bin /system/bin
+        bind_mount "$DUMMDIR/system/bin" "/system/bin"
       fi
 
+      # Stage 2
       log_print "* Stage 2: Bind mount module items"
       find $MOUNTINFO/system -type f 2>/dev/null | while read ITEM ; do
         TARGET=${ITEM#$MOUNTINFO}
         ORIG=`cat $ITEM`$TARGET
-        bind_mount $ORIG $TARGET
+        bind_mount "$ORIG" "$TARGET"
         rm -f $DUMMDIR${TARGET%/*}/.dummy 2>/dev/null
       done
 
@@ -534,7 +532,7 @@ case $1 in
       while read ITEM ; do
         ORIG=${ITEM/dummy/mirror}
         TARGET=${ITEM#$DUMMDIR}
-        bind_mount $ORIG $TARGET
+        bind_mount "$ORIG" "$TARGET"
       done
 
       # Bind hosts for Adblock apps

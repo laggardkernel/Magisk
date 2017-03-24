@@ -4,6 +4,11 @@ MODDIR=/magisk/.core/magiskhide
 BINPATH=/data/magisk
 LOGFILE=/cache/magisk.log
 TOOLPATH=/dev/busybox
+SAMSUNG=false
+SAMSUNG_CHECK=$(cat /system/build.prop | grep "ro.build.fingerprint=" | grep -i "samsung")
+if [ $? -eq 0 ]; then
+  SAMSUNG=true
+fi
 
 log_print() {
   echo "MagiskHide: $1"
@@ -28,8 +33,10 @@ if [ ! -d /sbin_orig ]; then
 fi
 
 # Sammy device like these permissions
-chmod 640 /sys/fs/selinux/enforce
-chmod 440 /sys/fs/selinux/policy
+if ($SAMSUNG); then
+  chmod 640 /sys/fs/selinux/enforce
+  chmod 440 /sys/fs/selinux/policy
+fi
 
 log_print "Removing dangerous read-only system props"
 
