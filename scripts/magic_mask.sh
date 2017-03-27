@@ -109,63 +109,60 @@ run_scripts() {
 }
 
 travel() {
-  LINK=false
-  in_list "/$2" "$WHITELIST" && LINK=true
-
-  cd "$1/$2"
+  # LINK=false
+  # in_list "/$1" "$WHITELIST" && LINK=true
+  
+  cd "$TRAVEL_ROOT/$1"
   if [ -f ".replace" ]; then
-    log_print "Replace: /$2"
-    rm -rf "$MOUNTINFO/$2"
-    mktouch "$MOUNTINFO/$2" "$1"
+    log_print "Replace: /$1"
+    rm -rf "$MOUNTINFO/$1"
+    mktouch "$MOUNTINFO/$1" "$TRAVEL_ROOT"
   else
     for ITEM in * ; do
       # This means it's an empty folder (shouldn't happen, but better to be safe)
       [ "$ITEM" = "*" ] && return
-      
+      # Ignore /system/vendor since we will handle it differently
+      # [ "$1" = "system" -a "$ITEM" = "vendor" ] && continue
+
       # Target not found or target/file is a symlink
-      if [ ! -e "/$2/$ITEM" -o -L "/$2/$ITEM" -o -L "$ITEM" ]; then
+      if [ ! -e "/$1/$ITEM" -o -L "/$1/$ITEM" -o -L "$ITEM" ]; then
         # New item found
-        if [ "$2" = "system" ]; then
+        if [ "$1" = "system" ]; then
           # We cannot add new items to /system root, delete it
+          # bind_mount is still used to get mirror system due to compatibility with MultiROM
           rm -rf "$ITEM"
         else
           # If we are in a higher level, delete the lower levels
-          rm -rf "$MOUNTINFO/dummy/$2"
+          rm -rf "$MOUNTINFO/dummy/$1" 2>/dev/null
           # Mount the dummy parent
-          log_print "Replace with dummy: /$2"
-          mktouch "$MOUNTINFO/dummy/$2"
+          log_print "Replace with dummy: /$1"
+          mktouch "$MOUNTINFO/dummy/$1"
 
-          if [ -d "$ITEM" ]; then
+          if [ -L "$ITEM" ]; then
+            # Copy symlinks
+            log_print "Symlink: /$1/$ITEM"
+            mkdir -p "$DUMMDIR/$1" 2>/dev/null
+            cp -afc "$ITEM" "$DUMMDIR/$1/$ITEM"
+          elif [ -d "$ITEM" ]; then
             # Create new dummy directory and mount it
-            log_print "New directory: /$2/$ITEM"
-            mkdir -p "$DUMMDIR/$2/$ITEM"
-            mktouch "$MOUNTINFO/$2/$ITEM" "$1"
-          elif [ -L "$ITEM" ]; then
-            # Symlinks are small, copy them
-            log_print "Symlink: /$2/$ITEM"
-            mkdir -p "$DUMMDIR/$2" 2>/dev/null
-            cp -afc "$ITEM" "$DUMMDIR/$2/$ITEM"
+            log_print "New directory: /$1/$ITEM"
+            mkdir -p "$DUMMDIR/$1/$ITEM"
+            mktouch "$MOUNTINFO/$1/$ITEM" "$TRAVEL_ROOT"
           else
-            if $LINK; then
-              log_print "Symlink: /$2/$ITEM"
-              mkdir -p "$DUMMDIR/$2" 2>/dev/null
-              ln -sf "$1/$2/$ITEM" "$DUMMDIR/$2/$ITEM"
-            else
-              # Create new dummy file and mount it
-              log_print "New file: /$2/$ITEM"
-              mktouch "$DUMMDIR/$2/$ITEM"
-              mktouch "$MOUNTINFO/$2/$ITEM" "$1"
-            fi
+            # Create new dummy file and mount it
+            log_print "New file: /$1/$ITEM"
+            mktouch "$DUMMDIR/$1/$ITEM"
+            mktouch "$MOUNTINFO/$1/$ITEM" "$TRAVEL_ROOT"
           fi
         fi
       else
         if [ -d "$ITEM" ]; then
           # It's an directory, travel deeper
-          (travel "$1" "$2/$ITEM")
+          (travel "$1/$ITEM")
         elif [ ! -L "$ITEM" ]; then
           # Mount this file
-          log_print "Replace: /$2/$ITEM"
-          mktouch "$MOUNTINFO/$2/$ITEM" "$1"
+          log_print "Replace: /$1/$ITEM"
+          mktouch "$MOUNTINFO/$1/$ITEM" "$TRAVEL_ROOT"
         fi
       fi
     done
@@ -173,10 +170,16 @@ travel() {
 }
 
 clone_dummy() {
+  LINK=false
+  in_list "$1" "$WHITELIST" && LINK=true
+  
   for ITEM in "$1/"* ; do
     if [ ! -e "$DUMMDIR$ITEM" ]; then
       if [ ! -d "$MOUNTINFO$ITEM" ]; then
-        if [ -d "$ITEM" ]; then
+        # Copy binary anyway in case of replacement
+        if $LINK; then
+          cp -afc "$ITEM" "$DUMMDIR$ITEM"
+        elif [ -d "$ITEM" ]; then
           # Create dummy directory
           mkdir -p "$DUMMDIR$ITEM"
         elif [ -L "$ITEM" ]; then
@@ -432,8 +435,9 @@ case $1 in
         if [ ! -f "$MOD/disable" ]; then
           # Travel through all mods
           if [ -f "$MOD/auto_mount" -a -d "$MOD/system" ]; then
-          log_print "Analyzing module: $MOD"
-          (travel "$MOD" system)
+            log_print "Analyzing module: $MOD"
+            TRAVEL_ROOT=$MOD
+            (travel system)
           fi
           # Read in defined system props
           if [ -f "$MOD/system.prop" ]; then
@@ -449,12 +453,7 @@ case $1 in
       # linker(64), t*box required
       if [ -f "$MOUNTINFO/dummy/system/bin" ]; then
         cd /system/bin
-        # cp -afc linker* t*box $DUMMDIR/system/bin/
-        for ITEM in * ; do
-          if [ ! -e "$DUMMDIR/system/bin/$ITEM" ]; then
-            cp -afc "$ITEM" $DUMMDIR/system/bin
-          fi
-        done
+        cp -afc linker* t*box $DUMMDIR/system/bin/
       fi
 
       # Some libraries are required
@@ -488,11 +487,10 @@ case $1 in
       rm -rf $MOUNTPOINT/lost+found
 
       # Start doing tasks
-
+      
       # Stage 1
       log_print "* Stage 1: Bind mount dummy skeletons"
       find $MOUNTINFO/dummy -type f 2>/dev/null | \
-      grep -v $WHITELIST | \
       while read ITEM ; do
         TARGET=${ITEM#$MOUNTINFO/dummy}
         ORIG="$DUMMDIR$TARGET"
@@ -500,10 +498,8 @@ case $1 in
         bind_mount "$ORIG" "$TARGET"
       done
       
-      # Bind binary to /system/bin differently
-      if [ -d "$DUMMDIR/system/bin" ]; then
-        bind_mount "$DUMMDIR/system/bin" "/system/bin"
-      fi
+      # Check if the dummy /system/bin is empty, it shouldn't
+      [ -e $DUMMDIR/system/bin -a ! -e $DUMMDIR/system/bin/sh ] && clone_dummy /system/bin
 
       # Stage 2
       log_print "* Stage 2: Bind mount module items"
@@ -517,7 +513,7 @@ case $1 in
       # Stage 3, Run scripts
       log_print "* Stage 3: Execute scripts"
       run_scripts post-fs-data
-
+      
       # Stage 4
       log_print "* Stage 4: Bind mount system mirror"
       bind_mount /system $MIRRDIR/system
@@ -525,8 +521,7 @@ case $1 in
       # Stage 5
       log_print "* Stage 5: Bind mount mirror items"
       # Find all empty directores and dummy files, they should be mounted by original files in /system
-      # TOOLPATH=/dev/busybox
-      find $DUMMDIR -type d \
+      TOOLPATH=/dev/busybox find $DUMMDIR -type d \
       -exec sh -c '[ -z "`ls -A $1`" ] && echo $1' -- {} \; \
       -o \( -type f -size 0 -print \) | \
       while read ITEM ; do
