@@ -176,7 +176,7 @@ repack_boot() {
   LD_LIBRARY_PATH=$SYSTEMLIB $BINDIR/bootimgtools --repack $BOOTIMAGE
   if [ -f chromeos ]; then
     # Copy required tools
-    cp -af $CHROMEDIR/. $CPPATH/chromeos
+    cp -af $CHROMEDIR/. $MAGISKBIN/chromeos
     echo " " > config
     echo " " > bootloader
     LD_LIBRARY_PATH=$SYSTEMLIB $CHROMEDIR/futility vbutil_kernel --pack new-boot.img.signed --keyblock $CHROMEDIR/kernel.keyblock --signprivate $CHROMEDIR/kernel_data_key.vbprivk --version 1 --vmlinuz new-boot.img --config config --arch arm --bootloader bootloader --flags 0x1
@@ -330,25 +330,24 @@ fi
 
 ui_print "- Constructing environment"
 
-CPPATH
+MAGISKBIN
 
 if (is_mounted /data); then
-  CPPATH=/data/magisk
+  MAGISKBIN=/data/magisk
 else
-  CPPATH=/cache/data_bin
+  MAGISKBIN=/cache/data_bin
 fi
 
 # Copy required files
-rm -rf $CPPATH 2>/dev/null
-mkdir -p $CPPATH
-cp -af $BINDIR/. \
-       $INSTALLER/common/custom_ramdisk_patch.sh $INSTALLER/common/init.magisk.rc \
-       $INSTALLER/common/magic_mask.sh $INSTALLER/common/magisk.apk $CPPATH
+rm -rf $MAGISKBIN 2>/dev/null
+mkdir -p $MAGISKBIN
+cp -af $BINDIR/busybox $BINDIR/bootimgtools $BINDIR/magiskpolicy $COMMONDIR/magisk.apk \
+       $COMMONDIR/init.magisk.rc  $COMMONDIR/custom_ramdisk_patch.sh $COMMONDIR/magic_mask.sh $MAGISKBIN
 # Legacy support
-ln -sf /data/magisk/magiskpolicy $CPPATH/sepolicy-inject
+ln -sf /data/magisk/magiskpolicy $MAGISKBIN/sepolicy-inject
 
-chmod -R 755 $CPPATH
-chcon -h u:object_r:system_file:s0 $CPPATH $CPPATH/*
+chmod -R 755 $MAGISKBIN
+chcon -h u:object_r:system_file:s0 $MAGISKBIN $MAGISKBIN/*
 
 # Temporary busybox for installation
 mkdir -p $TMPDIR/busybox
@@ -387,10 +386,13 @@ fi
 MAGISKLOOP=$LOOPDEVICE
 
 # Core folders and scripts
-mkdir -p $COREDIR/magiskhide $COREDIR/post-fs-data.d $COREDIR/service.d 2>/dev/null
+mkdir -p $COREDIR/bin $COREDIR/magiskhide $COREDIR/post-fs-data.d $COREDIR/service.d 2>/dev/null
 cp -af $INSTALLER/common/magiskhide/. $BINDIR/magiskhide $COREDIR/magiskhide
-chmod -R 755 $COREDIR/magiskhide $COREDIR/post-fs-data.d $COREDIR/service.d
-chown -R 0.0 $COREDIR/magiskhide $COREDIR/post-fs-data.d $COREDIR/service.d
+cp -af $BINDIR/resetprop $BINDIR/magiskhide $BINDIR/su $COREDIR/bin
+# Legacy support
+ln -sf $COREDIR/bin/resetprop $MAGISKBIN/resetprop
+chmod -R 755 $COREDIR/bin $COREDIR/magiskhide $COREDIR/post-fs-data.d $COREDIR/service.d
+chown -R 0.0 $COREDIR/bin $COREDIR/magiskhide $COREDIR/post-fs-data.d $COREDIR/service.d
 
 ##########################################################################################
 # Boot image patch
