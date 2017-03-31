@@ -414,7 +414,7 @@ case $1 in
       fi
 
       # v12.0
-      $MAGISKBIN/magiskpolicy --live
+      # $MAGISKBIN/magiskpolicy --live
 
       # v11.1 Start MagiskSU if no SuperSU
       # export PATH=$OLDPATH
@@ -422,21 +422,21 @@ case $1 in
       # export PATH=$TOOLPATH:$OLDPATH
 
       # Start MagiskSU
-      log_print "* Linking binaries to /sbin"
-      mount -o rw,remount rootfs /
-      chmod 755 /sbin
-      ln -sf $MAGISKBIN/magiskpolicy /sbin/magiskpolicy
-      ln -sf $MAGISKBIN/magiskpolicy /sbin/sepolicy-inject
-      ln -sf $MAGISKBIN/resetprop /sbin/resetprop
-      if [ ! -f /sbin/launch_daemonsu.sh ]; then
-        log_print "* Starting MagiskSU"
-        export PATH=$OLDPATH
-        ln -sf $MAGISKBIN/su /sbin/su
-        ln -sf $MAGISKBIN/magiskpolicy /sbin/supolicy
-        /sbin/su --daemon
-        export PATH=$TOOLPATH:$OLDPATH
-      fi
-      mount -o ro,remount rootfs /
+      # log_print "* Linking binaries to /sbin"
+      # mount -o rw,remount rootfs /
+      # chmod 755 /sbin
+      # ln -sf $MAGISKBIN/magiskpolicy /sbin/magiskpolicy
+      # ln -sf $MAGISKBIN/magiskpolicy /sbin/sepolicy-inject
+      # ln -sf $MAGISKBIN/resetprop /sbin/resetprop
+      # if [ ! -f /sbin/launch_daemonsu.sh ]; then
+      #   log_print "* Starting MagiskSU"
+      #   export PATH=$OLDPATH
+      #   ln -sf $MAGISKBIN/su /sbin/su
+      #   ln -sf $MAGISKBIN/magiskpolicy /sbin/supolicy
+      #   /sbin/su --daemon
+      #   export PATH=$TOOLPATH:$OLDPATH
+      # fi
+      # mount -o ro,remount rootfs /
 
       # log_print "* Running post-fs-data.d"
       general_scripts post-fs-data
@@ -571,15 +571,15 @@ case $1 in
       done
 
       # Bind hosts for Adblock apps v11
-      if [ -f "$COREDIR/hosts" ]; then
-        log_print "* Enabling systemless hosts file support"
-        bind_mount $COREDIR/hosts /system/etc/hosts
-      fi
+      # if [ -f "$COREDIR/hosts" ]; then
+      #   log_print "* Enabling systemless hosts file support"
+      #   bind_mount $COREDIR/hosts /system/etc/hosts
+      # fi
 
       # Install MagiskManager v10-11
 
       # Expose busybox v9-11
-      [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
+      # [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
 
       # Restart post-fs-data if necessary (multirom)
       $MULTIROM && setprop magisk.restart_pfsd 1
@@ -601,18 +601,33 @@ case $1 in
     log_print "** Magisk late_start service mode running..."
 
     # Bind hosts for Adblock apps v12.0
-    #if [ -f $COREDIR/hosts ]; then
-    #  log_print "* Enabling systemless hosts file support"
-    #  bind_mount $COREDIR/hosts /system/etc/hosts
-    #fi
+    if [ -f $COREDIR/hosts ]; then
+      log_print "* Enabling systemless hosts file support"
+      bind_mount $COREDIR/hosts /system/etc/hosts
+    fi
 
     # Expose busybox v12.0
-    # [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
+    [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
 
     # Live patch sepolicy v12.0
-    # $MAGISKBIN/magiskpolicy --live --magisk
+    $MAGISKBIN/magiskpolicy --live --magisk
 
     # Start MagiskSU v12.0
+    log_print "* Linking binaries to /sbin"
+    mount -o rw,remount rootfs /
+    chmod 755 /sbin
+    ln -sf $MAGISKBIN/magiskpolicy /sbin/magiskpolicy
+    ln -sf $MAGISKBIN/magiskpolicy /sbin/sepolicy-inject
+    ln -sf $MAGISKBIN/resetprop /sbin/resetprop
+    if [ ! -f /sbin/launch_daemonsu.sh ]; then
+      log_print "* Starting MagiskSU"
+      export PATH=$OLDPATH
+      ln -sf $MAGISKBIN/su /sbin/su
+      ln -sf $MAGISKBIN/magiskpolicy /sbin/supolicy
+      /sbin/su --daemon
+      export PATH=$TOOLPATH:$OLDPATH
+    fi
+    mount -o ro,remount rootfs /
 
     log_print "* Running service.d"
     general_scripts service
