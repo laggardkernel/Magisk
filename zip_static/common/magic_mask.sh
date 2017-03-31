@@ -597,7 +597,7 @@ case $1 in
 
   service )
     # Version info
-    MAGISK_VERSION_STUB
+    setprop magisk.version "11.1-9-20170331"
     log_print "** Magisk late_start service mode running..."
 
     # Bind hosts for Adblock apps v12.0
@@ -627,3 +627,4 @@ case $1 in
     ;;
 
 esac
+

@@ -3,7 +3,7 @@
 #
 # Magisk Boot Image Patcher
 # by topjohnwu
-# 
+#
 # This zip will patch your boot image with Magisk support
 #
 ##########################################################################################
@@ -62,7 +62,7 @@ unzip -o "$ZIP"
 ui_print() {
   if ($BOOTMODE); then
     echo "$1"
-  else 
+  else
     echo -n -e "ui_print $1\n" >> /proc/self/fd/$OUTFD
     echo -n -e "ui_print\n" >> /proc/self/fd/$OUTFD
   fi
@@ -273,14 +273,14 @@ fi
 LGE_G=false
 RBRAND=$(grep_prop ro.product.brand)
 RMODEL=$(grep_prop ro.product.device)
-if [ "$RBRAND" = "lge" ] || [ "$RBRAND" = "LGE" ];  then 
+if [ "$RBRAND" = "lge" ] || [ "$RBRAND" = "LGE" ];  then
   if [ "$RMODEL" = "d800" ] ||
      [ "$RMODEL" = "d801" ] ||
      [ "$RMODEL" = "d802" ] ||
-     [ "$RMODEL" = "d803" ] || 
+     [ "$RMODEL" = "d803" ] ||
      [ "$RMODEL" = "ls980" ] ||
      [ "$RMODEL" = "vs980" ] ||
-     [ "$RMODEL" = "l01f" ] || 
+     [ "$RMODEL" = "l01f" ] ||
      [ "$RMODEL" = "d850" ] ||
      [ "$RMODEL" = "d852" ] ||
      [ "$RMODEL" = "d855" ] ||
@@ -386,9 +386,9 @@ fi
 MAGISKLOOP=$LOOPDEVICE
 
 # Core folders and scripts
-mkdir -p $COREDIR/bin $COREDIR/magiskhide $COREDIR/post-fs-data.d $COREDIR/service.d 2>/dev/null
+mkdir -p $COREDIR/bin $COREDIR/props $COREDIR/magiskhide $COREDIR/post-fs-data.d $COREDIR/service.d 2>/dev/null
 cp -af $INSTALLER/common/magiskhide/. $BINDIR/magiskhide $COREDIR/magiskhide
-cp -af $BINDIR/resetprop $BINDIR/magiskhide $BINDIR/su $COREDIR/bin
+cp -af $BINDIR/resetprop $BINDIR/magiskhide $BINDIR/su $BINDIR/magiskpolicy $COREDIR/bin
 # Legacy support
 ln -sf $COREDIR/bin/resetprop $MAGISKBIN/resetprop
 chmod -R 755 $COREDIR/bin $COREDIR/magiskhide $COREDIR/post-fs-data.d $COREDIR/service.d
