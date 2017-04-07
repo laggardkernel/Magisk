@@ -19,6 +19,7 @@ MOUNTINFO=$TMPDIR/mnt
 # e.g. we rely on the option "-c" for cp (reserve contexts), and -exec for find
 TOOLPATH=/dev/busybox
 # BINPATH=/data/magisk
+# New directory used in Magisk 12
 DATABIN=/data/magisk
 MAGISKBIN=$COREDIR/bin
 OLDPATH=$PATH
@@ -53,7 +54,7 @@ in_list() {
 
 unblock() {
   touch /dev/.magisk.unblock
-  chcon u:object_r:device:s0 /dev/.magisk.unblock
+  # chcon u:object_r:device:s0 /dev/.magisk.unblock
   exit
 }
 
@@ -283,7 +284,7 @@ case $1 in
 
     log_print "** Magisk post-fs mode running..."
 
-    # Cleanup previous version stuffs...
+    # Cleanup legacy stuffs...
     rm -rf /cache/magisk /cache/magisk_merge /cache/magiskhide.log
 
     [ -f $DISABLEFILE -o -f $UNINSTALLER ] && unblock
@@ -342,7 +343,7 @@ case $1 in
       rm -f $TOOLPATH/su $TOOLPATH/sh $TOOLPATH/reboot
       chmod -R 755 $TOOLPATH
       chown -R 0.0 $TOOLPATH
-      find $DATABIN $TOOLPATH -exec chcon -h u:object_r:system_file:s0 {} \;
+      find $DATABIN $TOOLPATH -exec chcon -h "u:object_r:system_file:s0" {} \;
 
       if [ -f $UNINSTALLER ]; then
         touch /dev/.magisk.unblock
@@ -352,19 +353,6 @@ case $1 in
       fi
 
       # Install MagiskManager v12.0
-      if [ -f $DATABIN/magisk.apk ]; then
-        if ! ls /data/app | grep com.topjohnwu.magisk; then
-          mkdir /data/app/com.topjohnwu.magisk-1
-          cp $DATABIN/magisk.apk /data/app/com.topjohnwu.magisk-1/base.apk
-          chown 1000.1000 /data/app/com.topjohnwu.magisk-1
-          chown 1000.1000 /data/app/com.topjohnwu.magisk-1/base.apk
-          chmod 755 /data/app/com.topjohnwu.magisk-1
-          chmod 644 /data/app/com.topjohnwu.magisk-1/base.apk
-          chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1
-          chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1/base.apk
-        fi
-        rm -f $DATABIN/magisk.apk 2>/dev/null
-      fi
 
       # Image merging
       chmod 644 $IMG /cache/magisk.img /data/magisk_merge.img 2>/dev/null
@@ -413,34 +401,35 @@ case $1 in
         fi
       fi
 
-      # v12.0
-      # $MAGISKBIN/magiskpolicy --live
+      # v12.0 since magiskpolicy is moved in /magisk/.core/bin
+      $MAGISKBIN/magiskpolicy --live
 
-      # v11.1 Start MagiskSU if no SuperSU
+      # Start MagiskSU if no SuperSU v11.1
       # export PATH=$OLDPATH
       # [ ! -f /sbin/launch_daemonsu.sh ] && sh $COREDIR/su/magisksu.sh
       # export PATH=$TOOLPATH:$OLDPATH
 
-      # Start MagiskSU
-      # log_print "* Linking binaries to /sbin"
-      # mount -o rw,remount rootfs /
-      # chmod 755 /sbin
-      # ln -sf $MAGISKBIN/magiskpolicy /sbin/magiskpolicy
-      # ln -sf $MAGISKBIN/magiskpolicy /sbin/sepolicy-inject
-      # ln -sf $MAGISKBIN/resetprop /sbin/resetprop
-      # if [ ! -f /sbin/launch_daemonsu.sh ]; then
-      #   log_print "* Starting MagiskSU"
-      #   export PATH=$OLDPATH
-      #   ln -sf $MAGISKBIN/su /sbin/su
-      #   ln -sf $MAGISKBIN/magiskpolicy /sbin/supolicy
-      #   /sbin/su --daemon
-      #   export PATH=$TOOLPATH:$OLDPATH
-      # fi
-      # mount -o ro,remount rootfs /
+      # Start MagiskSU v11.6
+      log_print "* Linking binaries to /sbin"
+      mount -o rw,remount rootfs /
+      chmod 755 /sbin
+      ln -sf $MAGISKBIN/magiskpolicy /sbin/magiskpolicy
+      ln -sf $MAGISKBIN/magiskpolicy /sbin/sepolicy-inject
+      ln -sf $MAGISKBIN/resetprop /sbin/resetprop
+      if [ ! -f /sbin/launch_daemonsu.sh ]; then
+        log_print "* Starting MagiskSU"
+        export PATH=$OLDPATH
+        ln -sf $MAGISKBIN/su /sbin/su
+        ln -sf $MAGISKBIN/magiskpolicy /sbin/supolicy
+        /sbin/su --daemon
+        export PATH=$TOOLPATH:$OLDPATH
+      fi
+      mount -o ro,remount rootfs /
 
       # log_print "* Running post-fs-data.d"
-      general_scripts post-fs-data
+      # general_scripts post-fs-data
 
+      # Addded in Magisk 12.0
       log_print "* Loading core props"
       for PROP in $COREDIR/props/* ; do
         if [ -f "$PROP" ]; then
@@ -521,7 +510,7 @@ case $1 in
         cp -afc /system/vendor/lib64/. $DUMMDIR/system/vendor/lib64
       fi
 
-      # Remove crap folder
+      # Remove crap folder v9
       # rm -rf $MOUNTPOINT/lost+found
 
       # Start doing tasks
@@ -551,8 +540,8 @@ case $1 in
       # Stage 3, Run scripts
       log_print "* Stage 3: Execute module scripts"
       module_scripts post-fs-data
-      # log_print "* Running post-fs-data.d"
-      # general_scripts post-fs-data
+      log_print "* Running post-fs-data.d"
+      general_scripts post-fs-data
 
       # Stage 4
       log_print "* Stage 4: Bind mount system mirror"
@@ -571,15 +560,28 @@ case $1 in
       done
 
       # Bind hosts for Adblock apps v11
-      # if [ -f "$COREDIR/hosts" ]; then
-      #   log_print "* Enabling systemless hosts file support"
-      #   bind_mount $COREDIR/hosts /system/etc/hosts
-      # fi
+      if [ -f "$COREDIR/hosts" ]; then
+        log_print "* Enabling systemless hosts file support"
+        bind_mount $COREDIR/hosts /system/etc/hosts
+      fi
 
       # Install MagiskManager v10-11
+      if [ -f $DATABIN/magisk.apk ]; then
+        if ! ls /data/app | grep com.topjohnwu.magisk; then
+          mkdir /data/app/com.topjohnwu.magisk-1
+          cp $DATABIN/magisk.apk /data/app/com.topjohnwu.magisk-1/base.apk
+          chown 1000.1000 /data/app/com.topjohnwu.magisk-1
+          chown 1000.1000 /data/app/com.topjohnwu.magisk-1/base.apk
+          chmod 755 /data/app/com.topjohnwu.magisk-1
+          chmod 644 /data/app/com.topjohnwu.magisk-1/base.apk
+          chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1
+          chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1/base.apk
+        fi
+        rm -f $DATABIN/magisk.apk 2>/dev/null
+      fi
 
       # Expose busybox v9-11
-      # [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
+      [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
 
       # Restart post-fs-data if necessary (multirom)
       $MULTIROM && setprop magisk.restart_pfsd 1
@@ -601,36 +603,15 @@ case $1 in
     log_print "** Magisk late_start service mode running..."
 
     # Bind hosts for Adblock apps v12.0
-    if [ -f $COREDIR/hosts ]; then
-      log_print "* Enabling systemless hosts file support"
-      bind_mount $COREDIR/hosts /system/etc/hosts
-    fi
 
     # Expose busybox v12.0
-    [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
 
     # Live patch sepolicy v12.0
-    $MAGISKBIN/magiskpolicy --live --magisk
 
     # Start MagiskSU v12.0
-    log_print "* Linking binaries to /sbin"
-    mount -o rw,remount rootfs /
-    chmod 755 /sbin
-    ln -sf $MAGISKBIN/magiskpolicy /sbin/magiskpolicy
-    ln -sf $MAGISKBIN/magiskpolicy /sbin/sepolicy-inject
-    ln -sf $MAGISKBIN/resetprop /sbin/resetprop
-    if [ ! -f /sbin/launch_daemonsu.sh ]; then
-      log_print "* Starting MagiskSU"
-      export PATH=$OLDPATH
-      ln -sf $MAGISKBIN/su /sbin/su
-      ln -sf $MAGISKBIN/magiskpolicy /sbin/supolicy
-      /sbin/su --daemon
-      export PATH=$TOOLPATH:$OLDPATH
-    fi
-    mount -o ro,remount rootfs /
 
-    log_print "* Running service.d"
-    general_scripts service
+    # log_print "* Running service.d"
+    # general_scripts service
 
     if [ -f $DISABLEFILE ]; then
       # Let MagiskManager know
@@ -644,8 +625,8 @@ case $1 in
     fi
 
     module_scripts service
-    # log_print "* Running service.d"
-    # general_scripts service
+    log_print "* Running service.d"
+    general_scripts service
 
     # Start MagiskHide
     if [ "`getprop persist.magisk.hide`" = "1" ]; then
