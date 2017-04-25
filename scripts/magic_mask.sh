@@ -353,6 +353,19 @@ case $1 in
       fi
 
       # Install MagiskManager v12.0
+      if [ -f $DATABIN/magisk.apk ]; then
+        if ! ls /data/app | grep com.topjohnwu.magisk; then
+          mkdir /data/app/com.topjohnwu.magisk-1
+          cp $DATABIN/magisk.apk /data/app/com.topjohnwu.magisk-1/base.apk
+          chown 1000.1000 /data/app/com.topjohnwu.magisk-1
+          chown 1000.1000 /data/app/com.topjohnwu.magisk-1/base.apk
+          chmod 755 /data/app/com.topjohnwu.magisk-1
+          chmod 644 /data/app/com.topjohnwu.magisk-1/base.apk
+          chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1
+          chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1/base.apk
+        fi
+        rm -f $DATABIN/magisk.apk 2>/dev/null
+      fi
 
       # Image merging
       chmod 644 $IMG /cache/magisk.img /data/magisk_merge.img 2>/dev/null
@@ -426,10 +439,8 @@ case $1 in
       fi
       mount -o ro,remount rootfs /
 
-      if [ -f $DISABLEFILE ]; then
-        log_print "* Running post-fs-data.d"
-        general_scripts post-fs-data
-      fi
+      log_print "* Running post-fs-data.d"
+      general_scripts post-fs-data
 
       # Addded in Magisk 12.0
       log_print "* Loading core props"
@@ -441,35 +452,7 @@ case $1 in
       done
 
       # Exit if disabled
-      if [ -f $DISABLEFILE ]; then
-
-        # Bind hosts for Adblock apps v11
-        if [ -f "$COREDIR/hosts" ]; then
-          log_print "* Enabling systemless hosts file support"
-          bind_mount $COREDIR/hosts /system/etc/hosts
-        fi
-
-        # Install MagiskManager v10-11
-        if [ -f $DATABIN/magisk.apk ]; then
-          if ! ls /data/app | grep com.topjohnwu.magisk; then
-            mkdir /data/app/com.topjohnwu.magisk-1
-            cp $DATABIN/magisk.apk /data/app/com.topjohnwu.magisk-1/base.apk
-            chown 1000.1000 /data/app/com.topjohnwu.magisk-1
-            chown 1000.1000 /data/app/com.topjohnwu.magisk-1/base.apk
-            chmod 755 /data/app/com.topjohnwu.magisk-1
-            chmod 644 /data/app/com.topjohnwu.magisk-1/base.apk
-            chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1
-            chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1/base.apk
-          fi
-          rm -f $DATABIN/magisk.apk 2>/dev/null
-        fi
-
-        # Expose busybox v9-11
-        [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
-
-        unblock
-
-      fi
+      [ -f $DISABLEFILE ] && unblock
 
       ######################
       # Core features done #
@@ -570,8 +553,8 @@ case $1 in
       # Stage 3, Run scripts
       log_print "* Stage 3: Execute module scripts"
       module_scripts post-fs-data
-      log_print "* Running post-fs-data.d"
-      general_scripts post-fs-data
+      # log_print "* Running post-fs-data.d"
+      # general_scripts post-fs-data
 
       # Stage 4
       log_print "* Stage 4: Bind mount system mirror"
@@ -590,28 +573,15 @@ case $1 in
       done
 
       # Bind hosts for Adblock apps v11
-      if [ -f "$COREDIR/hosts" ]; then
-        log_print "* Enabling systemless hosts file support"
-        bind_mount $COREDIR/hosts /system/etc/hosts
-      fi
+      # if [ -f "$COREDIR/hosts" ]; then
+      #   log_print "* Enabling systemless hosts file support"
+      #   bind_mount $COREDIR/hosts /system/etc/hosts
+      # fi
 
       # Install MagiskManager v10-11
-      if [ -f $DATABIN/magisk.apk ]; then
-        if ! ls /data/app | grep com.topjohnwu.magisk; then
-          mkdir /data/app/com.topjohnwu.magisk-1
-          cp $DATABIN/magisk.apk /data/app/com.topjohnwu.magisk-1/base.apk
-          chown 1000.1000 /data/app/com.topjohnwu.magisk-1
-          chown 1000.1000 /data/app/com.topjohnwu.magisk-1/base.apk
-          chmod 755 /data/app/com.topjohnwu.magisk-1
-          chmod 644 /data/app/com.topjohnwu.magisk-1/base.apk
-          chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1
-          chcon u:object_r:apk_data_file:s0 /data/app/com.topjohnwu.magisk-1/base.apk
-        fi
-        rm -f $DATABIN/magisk.apk 2>/dev/null
-      fi
 
       # Expose busybox v9-11
-      [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
+      # [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
 
       # Restart post-fs-data if necessary (multirom)
       $MULTIROM && setprop magisk.restart_pfsd 1
@@ -633,22 +603,23 @@ case $1 in
     log_print "** Magisk late_start service mode running..."
 
     # Bind hosts for Adblock apps, moved here after v12.0
-    # if [ -f $COREDIR/hosts ]; then
-    #   log_print "* Enabling systemless hosts file support"
-    #   bind_mount $COREDIR/hosts /system/etc/hosts
-    # fi
+    if [ -f $COREDIR/hosts ]; then
+      log_print "* Enabling systemless hosts file support"
+      bind_mount $COREDIR/hosts /system/etc/hosts
+    fi
 
     # Expose busybox, moved here after v12.0
-    # [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
+    [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
 
     # Live patch sepolicy v12.0
 
     # Start MagiskSU v12.0
 
+    log_print "* Running service.d"
+    general_scripts service
+
     if [ -f $DISABLEFILE ]; then
-      log_print "* Running service.d"
-      general_scripts service
-      # Start MagiskHide
+      # Start MagiskHide even if Core Only Mode is enabled
       if [ "`getprop persist.magisk.hide`" = "1" ]; then
         log_print "* Starting MagiskHide"
         sh $COREDIR/magiskhide/enable
@@ -660,8 +631,8 @@ case $1 in
 
     # Running scripts before magiskhide, before Magisk v12.0
     module_scripts service
-    log_print "* Running service.d"
-    general_scripts service
+    # log_print "* Running service.d"
+    # general_scripts service
 
     # Start MagiskHide
     if [ "`getprop persist.magisk.hide`" = "1" ]; then
