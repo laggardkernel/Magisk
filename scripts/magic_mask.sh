@@ -341,8 +341,8 @@ case $1 in
       ln -sf $DATABIN/busybox $TOOLPATH/busybox
       # Prevent issues
       rm -f $TOOLPATH/su $TOOLPATH/sh $TOOLPATH/reboot
-      chmod -R 755 $TOOLPATH
-      chown -R 0.0 $TOOLPATH
+      # chmod -R 755 $TOOLPATH
+      # chown -R 0.0 $TOOLPATH
       find $DATABIN $TOOLPATH -exec chcon -h "u:object_r:system_file:s0" {} \;
 
       if [ -f $UNINSTALLER ]; then
@@ -415,7 +415,6 @@ case $1 in
       fi
 
       # in v12.0+, magiskpolicy is moved in /magisk/.core/bin
-      $MAGISKBIN/magiskpolicy --live
 
       # Start MagiskSU if no SuperSU v11.1
       # export PATH=$OLDPATH
@@ -423,21 +422,6 @@ case $1 in
       # export PATH=$TOOLPATH:$OLDPATH
 
       # Start MagiskSU v11.6. while in v12.0+, moved into service stage.
-      log_print "* Linking binaries to /sbin"
-      mount -o rw,remount rootfs /
-      chmod 755 /sbin
-      ln -sf $MAGISKBIN/magiskpolicy /sbin/magiskpolicy
-      ln -sf $MAGISKBIN/magiskpolicy /sbin/sepolicy-inject
-      ln -sf $MAGISKBIN/resetprop /sbin/resetprop
-      if [ ! -f /sbin/launch_daemonsu.sh ]; then
-        log_print "* Starting MagiskSU"
-        export PATH=$OLDPATH
-        ln -sf $MAGISKBIN/su /sbin/su
-        ln -sf $MAGISKBIN/magiskpolicy /sbin/supolicy
-        /sbin/su --daemon
-        export PATH=$TOOLPATH:$OLDPATH
-      fi
-      mount -o ro,remount rootfs /
 
       log_print "* Running post-fs-data.d"
       general_scripts post-fs-data
@@ -468,6 +452,13 @@ case $1 in
 
       mkdir -p $DUMMDIR
       mkdir -p $MIRRDIR/system
+
+      # Link vendor if not exist
+      if [ ! -e /vendor ]; then
+        mount -o rw,remount rootfs /
+        ln -sf /system/vendor /vendor
+        mount -o ro,remount rootfs /
+      fi
 
       # Travel through all mods, all magic happens here
       for MOD in $MOUNTPOINT/* ; do
@@ -612,8 +603,24 @@ case $1 in
     [ "`getprop persist.magisk.busybox`" = "1" ] && sh /sbin/magic_mask.sh mount_busybox
 
     # Live patch sepolicy v12.0
+    $MAGISKBIN/magiskpolicy --live --magisk
 
     # Start MagiskSU v12.0
+    log_print "* Linking binaries to /sbin"
+    mount -o rw,remount rootfs /
+    chmod 755 /sbin
+    ln -sf $MAGISKBIN/magiskpolicy /sbin/magiskpolicy
+    ln -sf $MAGISKBIN/magiskpolicy /sbin/sepolicy-inject
+    ln -sf $MAGISKBIN/resetprop /sbin/resetprop
+    if [ ! -f /sbin/launch_daemonsu.sh ]; then
+      log_print "* Starting MagiskSU"
+      export PATH=$OLDPATH
+      ln -sf $MAGISKBIN/su /sbin/su
+      ln -sf $MAGISKBIN/magiskpolicy /sbin/supolicy
+      /sbin/su --daemon
+      export PATH=$TOOLPATH:$OLDPATH
+    fi
+    mount -o ro,remount rootfs /
 
     log_print "* Running service.d"
     general_scripts service
@@ -634,7 +641,7 @@ case $1 in
     # log_print "* Running service.d"
     # general_scripts service
 
-    # Start MagiskHide
+    # Start MagiskHide v11
     if [ "`getprop persist.magisk.hide`" = "1" ]; then
       log_print "* Starting MagiskHide"
       sh $COREDIR/magiskhide/enable
